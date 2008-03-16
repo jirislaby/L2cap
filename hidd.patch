@@ -1,0 +1,19 @@
+--- bluez-utils-3.28/hidd/main.c.orig	2008-02-02 00:16:32.000000000 +0100
++++ bluez-utils-3.28/hidd/main.c	2008-03-15 20:38:27.000000000 +0100
+@@ -783,14 +783,14 @@
+ 
+ 	switch (mode) {
+ 	case SERVER:
+-		csk = l2cap_listen(&bdaddr, L2CAP_PSM_HIDP_CTRL, lm, 10);
++		csk = l2cap_listen(&bdaddr, 0x1000 + L2CAP_PSM_HIDP_CTRL, lm, 10);
+ 		if (csk < 0) {
+ 			perror("Can't listen on HID control channel");
+ 			close(ctl);
+ 			exit(1);
+ 		}
+ 
+-		isk = l2cap_listen(&bdaddr, L2CAP_PSM_HIDP_INTR, lm, 10);
++		isk = l2cap_listen(&bdaddr, 0x1000 + L2CAP_PSM_HIDP_INTR, lm, 10);
+ 		if (isk < 0) {
+ 			perror("Can't listen on HID interrupt channel");
+ 			close(ctl);
