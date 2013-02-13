@@ -52,15 +52,6 @@
 #include "ppoll.h"
 #endif
 
-enum {
-	NONE,
-	SHOW,
-	SERVER,
-	SEARCH,
-	CONNECT,
-	KILL
-};
-
 static volatile sig_atomic_t __io_canceled = 0;
 
 static void sig_hup(int sig)
@@ -70,44 +61,6 @@ static void sig_hup(int sig)
 static void sig_term(int sig)
 {
 	__io_canceled = 1;
-}
-
-static int l2cap_connect(bdaddr_t *src, bdaddr_t *dst, unsigned short psm)
-{
-	struct sockaddr_l2 addr;
-	struct l2cap_options opts;
-	int sk;
-
-	if ((sk = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP)) < 0)
-		return -1;
-
-	memset(&addr, 0, sizeof(addr));
-	addr.l2_family  = AF_BLUETOOTH;
-	bacpy(&addr.l2_bdaddr, src);
-
-	if (bind(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-		close(sk);
-		return -1;
-	}
-
-	memset(&opts, 0, sizeof(opts));
-	opts.imtu = HIDP_DEFAULT_MTU;
-	opts.omtu = HIDP_DEFAULT_MTU;
-	opts.flush_to = 0xffff;
-
-	setsockopt(sk, SOL_L2CAP, L2CAP_OPTIONS, &opts, sizeof(opts));
-
-	memset(&addr, 0, sizeof(addr));
-	addr.l2_family  = AF_BLUETOOTH;
-	bacpy(&addr.l2_bdaddr, dst);
-	addr.l2_psm = htobs(psm);
-
-	if (connect(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-		close(sk);
-		return -1;
-	}
-
-	return sk;
 }
 
 static int l2cap_listen(const bdaddr_t *bdaddr, unsigned short psm, int lm, int backlog)
@@ -393,253 +346,12 @@ static void run_server(int ctl, int csk, int isk, uint8_t subclass, int nosdp, i
 	}
 }
 
-static char *hidp_state[] = {
-	"unknown",
-	"connected",
-	"open",
-	"bound",
-	"listening",
-	"connecting",
-	"connecting",
-	"config",
-	"disconnecting",
-	"closed"
-};
-
-static char *hidp_flagstostr(uint32_t flags)
-{
-	static char str[100];
-	str[0] = 0;
-
-	strcat(str, "[");
-
-	if (flags & (1 << HIDP_BOOT_PROTOCOL_MODE))
-		strcat(str, "boot-protocol");
-
-	strcat(str, "]");
-
-	return str;
-}
-
-static void do_show(int ctl)
-{
-	struct hidp_connlist_req req;
-	struct hidp_conninfo ci[16];
-	char addr[18];
-	int i;
-
-	req.cnum = 16;
-	req.ci   = ci;
-
-	if (ioctl(ctl, HIDPGETCONNLIST, &req) < 0) {
-		perror("Can't get connection list");
-		close(ctl);
-		exit(1);
-	}
-
-	for (i = 0; i < req.cnum; i++) {
-		ba2str(&ci[i].bdaddr, addr);
-		printf("%s %s [%04x:%04x] %s %s\n", addr, ci[i].name,
-			ci[i].vendor, ci[i].product, hidp_state[ci[i].state],
-			ci[i].flags ? hidp_flagstostr(ci[i].flags) : "");
-	}
-}
-
-static void do_connect(int ctl, bdaddr_t *src, bdaddr_t *dst, uint8_t subclass, int fakehid, int bootonly, int encrypt, int timeout, unsigned short psm_ctrl, unsigned short psm_intr)
-{
-	struct hidp_connadd_req req;
-	uint16_t uuid = HID_SVCLASS_ID;
-	uint8_t channel = 0;
-	char name[256];
-	int csk, isk, err;
-
-	memset(&req, 0, sizeof(req));
-
-	err = get_sdp_device_info(src, dst, &req);
-	if (err < 0 && fakehid)
-		err = get_alternate_device_info(src, dst,
-				&uuid, &channel, name, sizeof(name) - 1);
-
-	if (err < 0) {
-		perror("Can't get device information");
-		close(ctl);
-		exit(1);
-	}
-
-	switch (uuid) {
-	case HID_SVCLASS_ID:
-		goto connect;
-
-	case SERIAL_PORT_SVCLASS_ID:
-		if (subclass == 0x40 || !strcmp(name, "Cable Replacement")) {
-			if (epox_presenter(src, dst, channel) < 0) {
-				close(ctl);
-				exit(1);
-			}
-			break;
-		}
-		if (subclass == 0x1f || !strcmp(name, "SPP slave")) {
-			if (jthree_keyboard(src, dst, channel) < 0) {
-				close(ctl);
-				exit(1);
-			}
-			break;
-		}
-		if (subclass == 0x02 || !strcmp(name, "Serial Port")) {
-			if (celluon_keyboard(src, dst, channel) < 0) {
-				close(ctl);
-				exit(1);
-			}
-			break;
-		}
-		break;
-
-	case HEADSET_SVCLASS_ID:
-	case HANDSFREE_SVCLASS_ID:
-		if (headset_presenter(src, dst, channel) < 0) {
-			close(ctl);
-			exit(1);
-		}
-		break;
-	}
-
-	return;
-
-connect:
-	csk = l2cap_connect(src, dst, psm_ctrl);
-	if (csk < 0) {
-		perror("Can't create HID control channel");
-		close(ctl);
-		exit(1);
-	}
-
-	isk = l2cap_connect(src, dst, psm_intr);
-	if (isk < 0) {
-		perror("Can't create HID interrupt channel");
-		close(csk);
-		close(ctl);
-		exit(1);
-	}
-
-	err = create_device(ctl, csk, isk, subclass, 1, 1, bootonly, encrypt, timeout);
-	if (err < 0) {
-		fprintf(stderr, "HID create error %d (%s)\n",
-						errno, strerror(errno));
-		close(isk);
-		sleep(1);
-		close(csk);
-		close(ctl);
-		exit(1);
-	}
-}
-
-static void do_search(int ctl, bdaddr_t *bdaddr, uint8_t subclass, int fakehid, int bootonly, int encrypt, int timeout, unsigned short psm_ctrl, unsigned short psm_intr)
-{
-	inquiry_info *info = NULL;
-	bdaddr_t src, dst;
-	int i, dev_id, num_rsp, length, flags;
-	char addr[18];
-	uint8_t class[3];
-
-	ba2str(bdaddr, addr);
-	dev_id = hci_devid(addr);
-	if (dev_id < 0) {
-		dev_id = hci_get_route(NULL);
-		hci_devba(dev_id, &src);
-	} else
-		bacpy(&src, bdaddr);
-
-	length  = 8;	/* ~10 seconds */
-	num_rsp = 0;
-	flags   = IREQ_CACHE_FLUSH;
-
-	printf("Searching ...\n");
-
-	num_rsp = hci_inquiry(dev_id, length, num_rsp, NULL, &info, flags);
-
-	for (i = 0; i < num_rsp; i++) {
-		memcpy(class, (info+i)->dev_class, 3);
-		if (class[1] == 0x25 && (class[2] == 0x00 || class[2] == 0x01)) {
-			bacpy(&dst, &(info+i)->bdaddr);
-			ba2str(&dst, addr);
-
-			printf("\tConnecting to device %s\n", addr);
-			do_connect(ctl, &src, &dst, subclass, fakehid, bootonly, encrypt, timeout, psm_ctrl, psm_intr);
-		}
-	}
-
-	if (!fakehid)
-		goto done;
-
-	for (i = 0; i < num_rsp; i++) {
-		memcpy(class, (info+i)->dev_class, 3);
-		if ((class[0] == 0x00 && class[2] == 0x00 && 
-				(class[1] == 0x40 || class[1] == 0x1f)) ||
-				(class[0] == 0x10 && class[1] == 0x02 && class[2] == 0x40)) {
-			bacpy(&dst, &(info+i)->bdaddr);
-			ba2str(&dst, addr);
-
-			printf("\tConnecting to device %s\n", addr);
-			do_connect(ctl, &src, &dst, subclass, 1, bootonly, 0, timeout, psm_ctrl, psm_intr);
-		}
-	}
-
-done:
-	bt_free(info);
-
-	if (!num_rsp) {
-		fprintf(stderr, "\tNo devices in range or visible\n");
-		close(ctl);
-		exit(1);
-	}
-}
-
-static void do_kill(int ctl, bdaddr_t *bdaddr, uint32_t flags)
-{
-	struct hidp_conndel_req req;
-	struct hidp_connlist_req cl;
-	struct hidp_conninfo ci[16];
-	int i;
-
-	if (!bacmp(bdaddr, BDADDR_ALL)) {
-		cl.cnum = 16;
-		cl.ci   = ci;
-
-		if (ioctl(ctl, HIDPGETCONNLIST, &cl) < 0) {
-			perror("Can't get connection list");
-			close(ctl);
-			exit(1);
-		}
-
-		for (i = 0; i < cl.cnum; i++) {
-			bacpy(&req.bdaddr, &ci[i].bdaddr);
-			req.flags = flags;
-
-			if (ioctl(ctl, HIDPCONNDEL, &req) < 0) {
-				perror("Can't release connection");
-				close(ctl);
-				exit(1);
-			}
-		}
-
-	} else {
-		bacpy(&req.bdaddr, bdaddr);
-		req.flags = flags;
-
-		if (ioctl(ctl, HIDPCONNDEL, &req) < 0) {
-			perror("Can't release connection");
-			close(ctl);
-			exit(1);
-		}
-	}
-}
-
 static void usage(void)
 {
 	printf("hidd - Bluetooth HID daemon version %s\n\n", VERSION);
 
 	printf("Usage:\n"
-		"\thidd [options] [commands]\n"
+		"\thidd [options]\n"
 		"\n");
 
 	printf("Options:\n"
@@ -648,16 +360,6 @@ static void usage(void)
 		"\t-b <subclass>        Overwrite the boot mode subclass\n"
 		"\t-n, --nodaemon       Don't fork daemon to background\n"
 		"\t-h, --help           Display help\n"
-		"\n");
-
-	printf("Commands:\n"
-		"\t--server             Start HID server\n"
-		"\t--search             Search for HID devices\n"
-		"\t--connect <bdaddr>   Connect remote HID device\n"
-		"\t--unplug <bdaddr>    Unplug the HID connection\n"
-		"\t--kill <bdaddr>      Terminate HID connection\n"
-		"\t--killall            Terminate all connections\n"
-		"\t--show               List current HID connections\n"
 		"\n");
 }
 
@@ -673,12 +375,9 @@ static struct option main_options[] = {
 	{ "nocheck",	0, 0, 'Z' },
 	{ "bootonly",	0, 0, 'B' },
 	{ "hidonly",	0, 0, 'H' },
-	{ "show",	0, 0, 'l' },
-	{ "list",	0, 0, 'l' },
-	{ "server",	0, 0, 'd' },
+
 	{ "listen",	0, 0, 'd' },
-	{ "search",	0, 0, 's' },
-	{ "create",	1, 0, 'c' },
+
 	{ "connect",	1, 0, 'c' },
 	{ "disconnect",	1, 0, 'k' },
 	{ "terminate",	1, 0, 'k' },
@@ -699,20 +398,19 @@ static inline long int get_number(const char *optarg)
 int main(int argc, char *argv[])
 {
 	struct sigaction sa;
-	bdaddr_t bdaddr, dev;
-	uint32_t flags = 0;
+	bdaddr_t bdaddr;
 	uint8_t subclass = 0x00;
 	char addr[18];
 	unsigned short psm_ctrl = L2CAP_PSM_HIDP_CTRL;
 	unsigned short psm_intr = L2CAP_PSM_HIDP_INTR;
 	int log_option = LOG_NDELAY | LOG_PID;
 	int opt, ctl, csk, isk;
-	int mode = SHOW, detach = 1, nosdp = 0, nocheck = 0, bootonly = 0;
-	int fakehid = 1, encrypt = 0, timeout = 30, lm = 0;
+	int detach = 1, nosdp = 0, nocheck = 0, bootonly = 0;
+	int encrypt = 0, timeout = 30, lm = 0;
 
 	bacpy(&bdaddr, BDADDR_ANY);
 
-	while ((opt = getopt_long(argc, argv, "+i:nt:b:MEDZBHldsc:k:Ku:h", main_options, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, "+i:nt:b:MEDZBh", main_options, NULL)) != -1) {
 		switch(opt) {
 		case 'i':
 			if (!strncasecmp(optarg, "hci", 3))
@@ -744,35 +442,6 @@ int main(int argc, char *argv[])
 		case 'B':
 			bootonly = 1;
 			break;
-		case 'H':
-			fakehid = 0;
-			break;
-		case 'l':
-			mode = SHOW;
-			break;
-		case 'd':
-			mode = SERVER;
-			break;
-		case 's':
-			mode = SEARCH;
-			break;
-		case 'c':
-			str2ba(optarg, &dev);
-			mode = CONNECT;
-			break;
-		case 'k':
-			str2ba(optarg, &dev);
-			mode = KILL;
-			break;
-		case 'K':
-			bacpy(&dev, BDADDR_ALL);
-			mode = KILL;
-			break;
-		case 'u':
-			str2ba(optarg, &dev);
-			flags = (1 << HIDP_VIRTUAL_CABLE_UNPLUG);
-			mode = KILL;
-			break;
 		case 'h':
 			usage();
 			exit(0);
@@ -795,43 +464,19 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	switch (mode) {
-	case SERVER:
-		csk = l2cap_listen(&bdaddr, psm_ctrl, lm, 10);
-		if (csk < 0) {
-			perror("Can't listen on HID control channel");
-			close(ctl);
-			exit(1);
-		}
-
-		isk = l2cap_listen(&bdaddr, psm_intr, lm, 10);
-		if (isk < 0) {
-			perror("Can't listen on HID interrupt channel");
-			close(ctl);
-			close(csk);
-			exit(1);
-		}
-		break;
-
-	case SEARCH:
-		do_search(ctl, &bdaddr, subclass, fakehid, bootonly, encrypt, timeout, psm_ctrl, psm_intr);
+	csk = l2cap_listen(&bdaddr, psm_ctrl, lm, 10);
+	if (csk < 0) {
+		perror("Can't listen on HID control channel");
 		close(ctl);
-		exit(0);
+		exit(1);
+	}
 
-	case CONNECT:
-		do_connect(ctl, &bdaddr, &dev, subclass, fakehid, bootonly, encrypt, timeout, psm_ctrl, psm_intr);
+	isk = l2cap_listen(&bdaddr, psm_intr, lm, 10);
+	if (isk < 0) {
+		perror("Can't listen on HID interrupt channel");
 		close(ctl);
-		exit(0);
-
-	case KILL:
-		do_kill(ctl, &dev, flags);
-		close(ctl);
-		exit(0);
-
-	default:
-		do_show(ctl);
-		close(ctl);
-		exit(0);
+		close(csk);
+		exit(1);
 	}
 
         if (detach) {
