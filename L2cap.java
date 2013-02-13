@@ -56,6 +56,15 @@ public class L2cap extends MIDlet implements CommandListener, Runnable,
 			protected void keyRepeated(int keyCode) {
 				send_cmd(keyCode, false);
 			}
+			protected void pointerPressed(int x, int y) {
+				send_cmd(getKeyCode(canvas.FIRE), true);
+			}
+			protected void pointerDragged(int x, int y) {
+				setStatus("drag: " + x + ":" + y);
+			}
+			protected void sizeChanged(int w, int h) {
+				repaint();
+			}
 		};
 
 		canvas.addCommand(c_dconn = new Command("Disconnect",

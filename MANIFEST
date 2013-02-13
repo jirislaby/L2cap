@@ -6,3 +6,4 @@ MIDlet-Description: l2cap example
 MIDlet-Version: 1.1
 MicroEdition-Profile: MIDP-2.0
 MicroEdition-Configuration: CLDC-1.1
+Nokia-MIDlet-S60-Selection-Key-Compatibility: true

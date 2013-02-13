@@ -1,10 +1,11 @@
+JAVA_PATH=/opt/j2me
 JAVAC=javac
 JAVACFLAGS=-source 1.4 -target 1.4 -bootclasspath $(BOOTCLASSPATHS) -cp .
-PREVERIFY=preverify
-BOOTCLASSPATHS=/opt/j2me/lib/midpapi20.jar:/opt/j2me/lib/cldcapi11.jar:/opt/j2me/lib/jsr082.jar
+PREVERIFY=$(JAVA_PATH)/bin/preverify
+BOOTCLASSPATHS=$(JAVA_PATH)/lib/midpapi20.jar:$(JAVA_PATH)/lib/cldcapi11.jar:$(JAVA_PATH)/lib/jsr082.jar
 JAR=jar
 JARSIGNER=jarsigner
-EMULATOR=emulator
+EMULATOR=$(JAVA_PATH)/bin/emulator
 
 SOURCES=L2cap.java
 CLASSES=$(patsubst %.java,%.class,$(SOURCES))
