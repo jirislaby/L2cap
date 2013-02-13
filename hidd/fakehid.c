@@ -74,6 +74,8 @@ static void send_event(int fd, uint16_t type, uint16_t code, int32_t value)
 	event.value = value;
 
 	len = write(fd, &event, sizeof(event));
+	if (len < 0)
+		fprintf(stderr, "%s: write failed with %d\n", __func__, len);
 }
 
 static int uinput_create(char *name, int keyboard, int mouse)

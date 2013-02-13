@@ -244,6 +244,8 @@ static void enable_sixaxis(int csk)
 	int err;
 
 	err = write(csk, buf, sizeof(buf));
+	if (err < 0)
+		fprintf(stderr, "%s: write failed with %d\n", __func__, err);
 }
 
 static int create_device(int ctl, int csk, int isk, uint8_t subclass, int nosdp, int nocheck, int bootonly, int encrypt, int timeout)
