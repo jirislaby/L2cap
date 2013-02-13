@@ -374,17 +374,6 @@ static struct option main_options[] = {
 	{ "nosdp",	0, 0, 'D' },
 	{ "nocheck",	0, 0, 'Z' },
 	{ "bootonly",	0, 0, 'B' },
-	{ "hidonly",	0, 0, 'H' },
-
-	{ "listen",	0, 0, 'd' },
-
-	{ "connect",	1, 0, 'c' },
-	{ "disconnect",	1, 0, 'k' },
-	{ "terminate",	1, 0, 'k' },
-	{ "release",	1, 0, 'k' },
-	{ "kill",	1, 0, 'k' },
-	{ "killall",	0, 0, 'K' },
-	{ "unplug",	1, 0, 'u' },
 	{ "psmctrl",	1, 0, 0x11 },
 	{ "psmintr",	1, 0, 0x13 },
 	{ 0, 0, 0, 0 }
