@@ -445,7 +445,7 @@ static void do_show(int ctl)
 	}
 }
 
-static void do_connect(int ctl, bdaddr_t *src, bdaddr_t *dst, uint8_t subclass, int fakehid, int bootonly, int encrypt, int timeout)
+static void do_connect(int ctl, bdaddr_t *src, bdaddr_t *dst, uint8_t subclass, int fakehid, int bootonly, int encrypt, int timeout, unsigned short psm_ctrl, unsigned short psm_intr)
 {
 	struct hidp_connadd_req req;
 	uint16_t uuid = HID_SVCLASS_ID;
@@ -506,14 +506,14 @@ static void do_connect(int ctl, bdaddr_t *src, bdaddr_t *dst, uint8_t subclass, 
 	return;
 
 connect:
-	csk = l2cap_connect(src, dst, L2CAP_PSM_HIDP_CTRL);
+	csk = l2cap_connect(src, dst, psm_ctrl);
 	if (csk < 0) {
 		perror("Can't create HID control channel");
 		close(ctl);
 		exit(1);
 	}
 
-	isk = l2cap_connect(src, dst, L2CAP_PSM_HIDP_INTR);
+	isk = l2cap_connect(src, dst, psm_intr);
 	if (isk < 0) {
 		perror("Can't create HID interrupt channel");
 		close(csk);
@@ -533,7 +533,7 @@ connect:
 	}
 }
 
-static void do_search(int ctl, bdaddr_t *bdaddr, uint8_t subclass, int fakehid, int bootonly, int encrypt, int timeout)
+static void do_search(int ctl, bdaddr_t *bdaddr, uint8_t subclass, int fakehid, int bootonly, int encrypt, int timeout, unsigned short psm_ctrl, unsigned short psm_intr)
 {
 	inquiry_info *info = NULL;
 	bdaddr_t src, dst;
@@ -564,7 +564,7 @@ static void do_search(int ctl, bdaddr_t *bdaddr, uint8_t subclass, int fakehid, 
 			ba2str(&dst, addr);
 
 			printf("\tConnecting to device %s\n", addr);
-			do_connect(ctl, &src, &dst, subclass, fakehid, bootonly, encrypt, timeout);
+			do_connect(ctl, &src, &dst, subclass, fakehid, bootonly, encrypt, timeout, psm_ctrl, psm_intr);
 		}
 	}
 
@@ -580,7 +580,7 @@ static void do_search(int ctl, bdaddr_t *bdaddr, uint8_t subclass, int fakehid, 
 			ba2str(&dst, addr);
 
 			printf("\tConnecting to device %s\n", addr);
-			do_connect(ctl, &src, &dst, subclass, 1, bootonly, 0, timeout);
+			do_connect(ctl, &src, &dst, subclass, 1, bootonly, 0, timeout, psm_ctrl, psm_intr);
 		}
 	}
 
@@ -686,8 +686,15 @@ static struct option main_options[] = {
 	{ "kill",	1, 0, 'k' },
 	{ "killall",	0, 0, 'K' },
 	{ "unplug",	1, 0, 'u' },
+	{ "psmctrl",	1, 0, 0x11 },
+	{ "psmintr",	1, 0, 0x13 },
 	{ 0, 0, 0, 0 }
 };
+
+static inline long int get_number(const char *optarg)
+{
+	return strtol(optarg, NULL, strncasecmp(optarg, "0x", 2) ? 10 : 16);
+}
 
 int main(int argc, char *argv[])
 {
@@ -696,6 +703,8 @@ int main(int argc, char *argv[])
 	uint32_t flags = 0;
 	uint8_t subclass = 0x00;
 	char addr[18];
+	unsigned short psm_ctrl = L2CAP_PSM_HIDP_CTRL;
+	unsigned short psm_intr = L2CAP_PSM_HIDP_INTR;
 	int log_option = LOG_NDELAY | LOG_PID;
 	int opt, ctl, csk, isk;
 	int mode = SHOW, detach = 1, nosdp = 0, nocheck = 0, bootonly = 0;
@@ -718,10 +727,7 @@ int main(int argc, char *argv[])
 			timeout = atoi(optarg);
 			break;
 		case 'b':
-			if (!strncasecmp(optarg, "0x", 2))
-				subclass = (uint8_t) strtol(optarg, NULL, 16);
-			else
-				subclass = atoi(optarg);
+			subclass = get_number(optarg);
 			break;
 		case 'M':
 			lm |= L2CAP_LM_MASTER;
@@ -770,6 +776,12 @@ int main(int argc, char *argv[])
 		case 'h':
 			usage();
 			exit(0);
+		case 0x11:
+			psm_ctrl = get_number(optarg);
+			break;
+		case 0x13:
+			psm_intr = get_number(optarg);
+			break;
 		default:
 			exit(0);
 		}
@@ -785,14 +797,14 @@ int main(int argc, char *argv[])
 
 	switch (mode) {
 	case SERVER:
-		csk = l2cap_listen(&bdaddr, L2CAP_PSM_HIDP_CTRL, lm, 10);
+		csk = l2cap_listen(&bdaddr, psm_ctrl, lm, 10);
 		if (csk < 0) {
 			perror("Can't listen on HID control channel");
 			close(ctl);
 			exit(1);
 		}
 
-		isk = l2cap_listen(&bdaddr, L2CAP_PSM_HIDP_INTR, lm, 10);
+		isk = l2cap_listen(&bdaddr, psm_intr, lm, 10);
 		if (isk < 0) {
 			perror("Can't listen on HID interrupt channel");
 			close(ctl);
@@ -802,12 +814,12 @@ int main(int argc, char *argv[])
 		break;
 
 	case SEARCH:
-		do_search(ctl, &bdaddr, subclass, fakehid, bootonly, encrypt, timeout);
+		do_search(ctl, &bdaddr, subclass, fakehid, bootonly, encrypt, timeout, psm_ctrl, psm_intr);
 		close(ctl);
 		exit(0);
 
 	case CONNECT:
-		do_connect(ctl, &bdaddr, &dev, subclass, fakehid, bootonly, encrypt, timeout);
+		do_connect(ctl, &bdaddr, &dev, subclass, fakehid, bootonly, encrypt, timeout, psm_ctrl, psm_intr);
 		close(ctl);
 		exit(0);
 
