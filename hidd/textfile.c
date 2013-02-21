@@ -40,7 +40,7 @@
 
 #include "textfile.h"
 
-int create_dirs(const char *filename, const mode_t mode)
+static int create_dirs(const char *filename, const mode_t mode)
 {
 	struct stat st;
 	char dir[PATH_MAX + 1], *prev, *next;
@@ -91,19 +91,19 @@ int create_file(const char *filename, const mode_t mode)
 	return 0;
 }
 
-int create_name(char *buf, size_t size, const char *path, const char *address, const char *name)
+int create_name(char *buf, size_t size, const char *path, const char *address,
+		const char *name)
 {
 	return snprintf(buf, size, "%s/%s/%s", path, address, name);
 }
 
-static inline char *find_key(char *map, size_t size, const char *key, size_t len, int icase)
+static char *find_key(char *map, size_t size, const char *key, size_t len)
 {
 	char *ptr = map;
 	size_t ptrlen = size;
 
 	while (ptrlen > len + 1) {
-		int cmp = (icase) ? strncasecmp(ptr, key, len) : strncmp(ptr, key, len);
-		if (cmp == 0) {
+		if (strncmp(ptr, key, len) == 0) {
 			if (ptr == map)
 				return ptr;
 
@@ -112,19 +112,7 @@ static inline char *find_key(char *map, size_t size, const char *key, size_t len
 				return ptr;
 		}
 
-		if (icase) {
-			char *p1 = memchr(ptr + 1, tolower(*key), ptrlen - 1);
-			char *p2 = memchr(ptr + 1, toupper(*key), ptrlen - 1);
-
-			if (!p1)
-				ptr = p2;
-			else if (!p2)
-				ptr = p1;
-			else
-				ptr = (p1 < p2) ? p1 : p2;
-		} else
-			ptr = memchr(ptr + 1, *key, ptrlen - 1);
-
+		ptr = memchr(ptr + 1, *key, ptrlen - 1);
 		if (!ptr)
 			return NULL;
 
@@ -156,11 +144,12 @@ static inline int write_key_value(int fd, const char *key, const char *value)
 	return err;
 }
 
-static int write_key(const char *pathname, const char *key, const char *value, int icase)
+int textfile_put(const char *pathname, const char *key, const char *value)
 {
 	struct stat st;
 	char *map, *off, *end, *str;
-	off_t size, pos; size_t base, len;
+	off_t size;
+	size_t base, len;
 	int fd, err = 0;
 
 	fd = open(pathname, O_RDWR);
@@ -181,7 +170,7 @@ static int write_key(const char *pathname, const char *key, const char *value, i
 
 	if (!size) {
 		if (value) {
-			pos = lseek(fd, size, SEEK_SET);
+			lseek(fd, size, SEEK_SET);
 			err = write_key_value(fd, key, value);
 		}
 		goto unlock;
@@ -195,11 +184,11 @@ static int write_key(const char *pathname, const char *key, const char *value, i
 	}
 
 	len = strlen(key);
-	off = find_key(map, size, key, len, icase);
+	off = find_key(map, size, key, len);
 	if (!off) {
 		if (value) {
 			munmap(map, size);
-			pos = lseek(fd, size, SEEK_SET);
+			lseek(fd, size, SEEK_SET);
 			err = write_key_value(fd, key, value);
 		}
 		goto unlock;
@@ -227,7 +216,7 @@ static int write_key(const char *pathname, const char *key, const char *value, i
 			err = errno;
 			goto unlock;
 		}
-		pos = lseek(fd, base, SEEK_SET);
+		lseek(fd, base, SEEK_SET);
 		if (value)
 			err = write_key_value(fd, key, value);
 
@@ -253,7 +242,7 @@ static int write_key(const char *pathname, const char *key, const char *value, i
 		free(str);
 		goto unlock;
 	}
-	pos = lseek(fd, base, SEEK_SET);
+	lseek(fd, base, SEEK_SET);
 	if (value)
 		err = write_key_value(fd, key, value);
 
@@ -277,7 +266,7 @@ close:
 	return -err;
 }
 
-static char *read_key(const char *pathname, const char *key, int icase)
+char *textfile_get(const char *pathname, const char *key)
 {
 	struct stat st;
 	char *map, *off, *end, *str = NULL;
@@ -307,7 +296,7 @@ static char *read_key(const char *pathname, const char *key, int icase)
 	}
 
 	len = strlen(key);
-	off = find_key(map, size, key, len, icase);
+	off = find_key(map, size, key, len);
 	if (!off) {
 		err = EILSEQ;
 		goto unmap;
@@ -339,125 +328,4 @@ close:
 	errno = err;
 
 	return str;
-}
-
-int textfile_put(const char *pathname, const char *key, const char *value)
-{
-	return write_key(pathname, key, value, 0);
-}
-
-int textfile_caseput(const char *pathname, const char *key, const char *value)
-{
-	return write_key(pathname, key, value, 1);
-}
-
-int textfile_del(const char *pathname, const char *key)
-{
-	return write_key(pathname, key, NULL, 0);
-}
-
-int textfile_casedel(const char *pathname, const char *key)
-{
-	return write_key(pathname, key, NULL, 1);
-}
-
-char *textfile_get(const char *pathname, const char *key)
-{
-	return read_key(pathname, key, 0);
-}
-
-char *textfile_caseget(const char *pathname, const char *key)
-{
-	return read_key(pathname, key, 1);
-}
-
-int textfile_foreach(const char *pathname,
-		void (*func)(char *key, char *value, void *data), void *data)
-{
-	struct stat st;
-	char *map, *off, *end, *key, *value;
-	off_t size; size_t len;
-	int fd, err = 0;
-
-	fd = open(pathname, O_RDONLY);
-	if (fd < 0)
-		return -errno;
-
-	if (flock(fd, LOCK_SH) < 0) {
-		err = errno;
-		goto close;
-	}
-
-	if (fstat(fd, &st) < 0) {
-		err = errno;
-		goto unlock;
-	}
-
-	size = st.st_size;
-
-	map = mmap(NULL, size, PROT_READ, MAP_SHARED, fd, 0);
-	if (!map || map == MAP_FAILED) {
-		err = errno;
-		goto unlock;
-	}
-
-	off = map;
-
-	while (1) {
-		end = strpbrk(off, " ");
-		if (!end) {
-			err = EILSEQ;
-			break;
-		}
-
-		len = end - off;
-
-		key = malloc(len + 1);
-		if (!key) {
-			err = errno;
-			break;
-		}
-
-		memset(key, 0, len + 1);
-		memcpy(key, off, len);
-
-		off = end + 1;
-
-		end = strpbrk(off, "\r\n");
-		if (!end) {
-			err = EILSEQ;
-			free(key);
-			break;
-		}
-
-		len = end - off;
-
-		value = malloc(len + 1);
-		if (!value) {
-			err = errno;
-			free(key);
-			break;
-		}
-
-		memset(value, 0, len + 1);
-		memcpy(value, off, len);
-
-		func(key, value, data);
-
-		free(key);
-		free(value);
-
-		off = end + 1;
-	}
-
-	munmap(map, size);
-
-unlock:
-	flock(fd, LOCK_UN);
-
-close:
-	close(fd);
-	errno = err;
-
-	return 0;
 }
