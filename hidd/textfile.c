@@ -38,7 +38,7 @@
 #include <sys/mman.h>
 #include <sys/param.h>
 
-#include "textfile.h"
+#include "l2cap.h"
 
 static int create_dirs(const char *filename, const mode_t mode)
 {

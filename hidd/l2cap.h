@@ -21,8 +21,26 @@
  *
  */
 
+#ifndef __MY_L2CAP_H /* __L2CAP_H is defined in bluetooth layer */
+#define __MY_L2CAP_H
+
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/hidp.h>
+
 #define L2CAP_PSM_HIDP_CTRL 0x11
 #define L2CAP_PSM_HIDP_INTR 0x13
 
-int get_stored_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_connadd_req *req);
-int get_sdp_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_connadd_req *req);
+extern int get_stored_device_info(const bdaddr_t *src, const bdaddr_t *dst,
+		struct hidp_connadd_req *req);
+extern int get_sdp_device_info(const bdaddr_t *src, const bdaddr_t *dst,
+		struct hidp_connadd_req *req);
+
+extern int create_file(const char *filename, const mode_t mode);
+extern int create_name(char *buf, size_t size, const char *path,
+				const char *address, const char *name);
+
+extern int textfile_put(const char *pathname, const char *key,
+		const char *value);
+extern char *textfile_get(const char *pathname, const char *key);
+
+#endif

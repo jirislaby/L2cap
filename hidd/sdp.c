@@ -41,8 +41,7 @@
 #include <bluetooth/sdp_lib.h>
 #include <bluetooth/hidp.h>
 
-#include "textfile.h"
-#include "hidd.h"
+#include "l2cap.h"
 
 static int store_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_connadd_req *req)
 {
