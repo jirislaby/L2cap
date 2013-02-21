@@ -50,9 +50,7 @@ static int store_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hi
 	int err, size;
 
 	ba2str(src, addr);
-	perror("unimplemented");
-	return -EIO;
-//	create_name(filename, PATH_MAX, STORAGEDIR, addr, "hidd");
+	create_name(filename, PATH_MAX, STORAGEDIR, addr, "l2cap");
 
 	size = 15 + 3 + 3 + 5 + 9 + strlen(req->name) + 2;
 	str = malloc(size);
@@ -79,9 +77,7 @@ int get_stored_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp
 	unsigned int vendor, product, version, subclass, country, parser;
 
 	ba2str(src, addr);
-	perror("unimplemented");
-	return -EIO;
-//	create_name(filename, PATH_MAX, STORAGEDIR, addr, "hidd");
+	create_name(filename, PATH_MAX, STORAGEDIR, addr, "l2cap");
 
 	ba2str(dst, addr);
 	str = textfile_get(filename, addr);
