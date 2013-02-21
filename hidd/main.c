@@ -258,7 +258,7 @@ create:
 		req.subclass = subclass;
 
 	ba2str(&dst, bda);
-	syslog(LOG_INFO, "New HID device %s (%s)", bda, req.name);
+	syslog(LOG_INFO, "New HID device %s", bda);
 
 	if (encrypt && (req.subclass & 0x40)) {
 		err = request_authentication(&src, &dst);

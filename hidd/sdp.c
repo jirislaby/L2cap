@@ -46,35 +46,22 @@
 
 static int store_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_connadd_req *req)
 {
-	char filename[PATH_MAX + 1], addr[18], *str, *desc;
-	int i, err, size;
+	char filename[PATH_MAX + 1], addr[18], *str;
+	int err, size;
 
 	ba2str(src, addr);
 	perror("unimplemented");
 	return -EIO;
 //	create_name(filename, PATH_MAX, STORAGEDIR, addr, "hidd");
 
-	size = 15 + 3 + 3 + 5 + (req->rd_size * 2) + 1 + 9 + strlen(req->name) + 2;
+	size = 15 + 3 + 3 + 5 + 9 + strlen(req->name) + 2;
 	str = malloc(size);
 	if (!str)
 		return -ENOMEM;
 
-	desc = malloc((req->rd_size * 2) + 1);
-	if (!desc) {
-		free(str);
-		return -ENOMEM;
-	}
-
-	memset(desc, 0, (req->rd_size * 2) + 1);
-	for (i = 0; i < req->rd_size; i++)
-		sprintf(desc + (i * 2), "%2.2X", req->rd_data[i]);
-
-	snprintf(str, size - 1, "%04X:%04X:%04X %02X %02X %04X %s %08X %s",
+	snprintf(str, size - 1, "%04X:%04X:%04X %02X %02X %04X %08X",
 			req->vendor, req->product, req->version,
-			req->subclass, req->country, req->parser, desc,
-			req->flags, req->name);
-
-	free(desc);
+			req->subclass, req->country, req->parser, req->flags);
 
 	create_file(filename, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
@@ -88,15 +75,8 @@ static int store_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hi
 
 int get_stored_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_connadd_req *req)
 {
-	char filename[PATH_MAX + 1], addr[18], tmp[3], *str, *desc;
-	unsigned int vendor, product, version, subclass, country, parser, pos;
-	int i;
-
-	desc = malloc(4096);
-	if (!desc)
-		return -ENOMEM;
-
-	memset(desc, 0, 4096);
+	char filename[PATH_MAX + 1], addr[18], *str;
+	unsigned int vendor, product, version, subclass, country, parser;
 
 	ba2str(src, addr);
 	perror("unimplemented");
@@ -105,14 +85,12 @@ int get_stored_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp
 
 	ba2str(dst, addr);
 	str = textfile_get(filename, addr);
-	if (!str) {
-		free(desc);
+	if (!str)
 		return -EIO;
-	}
 
-	sscanf(str, "%04X:%04X:%04X %02X %02X %04X %4095s %08X %n",
+	sscanf(str, "%04X:%04X:%04X %02X %02X %04X %08X",
 			&vendor, &product, &version, &subclass, &country,
-			&parser, desc, &req->flags, &pos);
+			&parser, &req->flags);
 
 	free(str);
 
@@ -122,23 +100,6 @@ int get_stored_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp
 	req->subclass = subclass;
 	req->country  = country;
 	req->parser   = parser;
-
-	snprintf(req->name, 128, str + pos);
-
-	req->rd_size = strlen(desc) / 2;
-	req->rd_data = malloc(req->rd_size);
-	if (!req->rd_data) {
-		free(desc);
-		return -ENOMEM;
-	}
-
-	memset(tmp, 0, sizeof(tmp));
-	for (i = 0; i < req->rd_size; i++) {
-		memcpy(tmp, desc + (i * 2), 2);
-		req->rd_data[i] = (uint8_t) strtol(tmp, NULL, 16);
-	}
-
-	free(desc);
 
 	return 0;
 }
@@ -150,9 +111,9 @@ int get_sdp_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_co
 	bdaddr_t bdaddr;
 	uint32_t range = 0x0000ffff;
 	sdp_session_t *s;
-	sdp_list_t *search, *attrid, *pnp_rsp, *hid_rsp;
+	sdp_list_t *search, *attrid, *pnp_rsp;
 	sdp_record_t *rec;
-	sdp_data_t *pdlist, *pdlist2;
+	sdp_data_t *pdlist;
 	uuid_t svclass;
 	int err;
 
@@ -170,16 +131,6 @@ int get_sdp_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_co
 	sdp_list_free(search, NULL);
 	sdp_list_free(attrid, NULL);
 
-	sdp_uuid16_create(&svclass, HID_SVCLASS_ID);
-	search = sdp_list_append(NULL, &svclass);
-	attrid = sdp_list_append(NULL, &range);
-
-	err = sdp_service_search_attr_req(s, search,
-					SDP_ATTR_REQ_RANGE, attrid, &hid_rsp);
-
-	sdp_list_free(search, NULL);
-	sdp_list_free(attrid, NULL);
-
 	memset(&addr, 0, sizeof(addr));
 	addrlen = sizeof(addr);
 
@@ -190,7 +141,7 @@ int get_sdp_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_co
 
 	sdp_close(s);
 
-	if (err || !hid_rsp)
+	if (err)
 		return -1;
 
 	if (pnp_rsp) {
@@ -208,49 +159,9 @@ int get_sdp_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_co
 		sdp_record_free(rec);
 	}
 
-	rec = (sdp_record_t *) hid_rsp->data;
-
-	pdlist = sdp_data_get(rec, 0x0101);
-	pdlist2 = sdp_data_get(rec, 0x0102);
-	if (pdlist) {
-		if (pdlist2) {
-			if (strncmp(pdlist->val.str, pdlist2->val.str, 5)) {
-				strncpy(req->name, pdlist2->val.str, sizeof(req->name) - 1);
-				strcat(req->name, " ");
-			}
-			strncat(req->name, pdlist->val.str,
-					sizeof(req->name) - strlen(req->name));
-		} else
-			strncpy(req->name, pdlist->val.str, sizeof(req->name));
-	} else {
-		pdlist2 = sdp_data_get(rec, 0x0100);
-		if (pdlist2)
-			strncpy(req->name, pdlist2->val.str, sizeof(req->name));
-	}
-
-	pdlist = sdp_data_get(rec, 0x0201);
-	req->parser = pdlist ? pdlist->val.uint16 : 0x0100;
-
-	pdlist = sdp_data_get(rec, 0x0202);
-	req->subclass = pdlist ? pdlist->val.uint8 : 0;
-
-	pdlist = sdp_data_get(rec, 0x0203);
-	req->country = pdlist ? pdlist->val.uint8 : 0;
-
-	pdlist = sdp_data_get(rec, 0x0206);
-	if (pdlist) {
-		pdlist = pdlist->val.dataseq;
-		pdlist = pdlist->val.dataseq;
-		pdlist = pdlist->next;
-
-		req->rd_data = malloc(pdlist->unitSize);
-		if (req->rd_data) {
-			memcpy(req->rd_data, (unsigned char *) pdlist->val.str, pdlist->unitSize);
-			req->rd_size = pdlist->unitSize;
-		}
-	}
-
-	sdp_record_free(rec);
+	req->parser = 0x0100;
+	req->subclass = 0xc0;
+	req->country = 0;
 
 	if (bacmp(&bdaddr, BDADDR_ANY))
 		store_device_info(&bdaddr, dst, req);
