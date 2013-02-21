@@ -1,10 +1,31 @@
 AC_PREREQ(2.50)
-AC_INIT()
-
-AM_INIT_AUTOMAKE(l2cap, 3.36)
+AC_INIT([l2cap], [3.36])
+AM_INIT_AUTOMAKE([-Wall])
 
 AC_LANG_C
-
 AC_PROG_CC
 
-AC_OUTPUT([Makefile])
+AC_ARG_WITH([storage-dir],
+	[AS_HELP_STRING([--with-storage-dir=path],
+		[directory where bluetooth information is stored @<:@default=/var/lib/bluetooth@:>@])],
+	[AC_DEFINE_UNQUOTED(STORAGEDIR, ["$withval"])],
+	[AC_DEFINE(STORAGEDIR, ["/var/lib/bluetooth"])])
+
+# ================ start WARNINGFLAGS
+
+WARNINGFLAGS=""
+
+AC_MSG_CHECKING([whether compiler supports -Wall])
+orig_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -Wall"
+AC_COMPILE_IFELSE([int a;], [AC_MSG_RESULT([yes]); WARNINGFLAGS="$WARNINGFLAGS -Wall"], AC_MSG_RESULT([no]))
+CFLAGS="$orig_CFLAGS"
+
+AC_SUBST(WARNINGFLAGS)
+
+# ================ end WARNINGFLAGS
+
+PKG_CHECK_MODULES([bluez], [bluez])
+
+AC_CONFIG_FILES([Makefile])
+AC_OUTPUT
