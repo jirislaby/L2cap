@@ -1,0 +1,10 @@
+AC_PREREQ(2.50)
+AC_INIT()
+
+AM_INIT_AUTOMAKE(l2cap, 3.36)
+
+AC_LANG_C
+
+AC_PROG_CC
+
+AC_OUTPUT([Makefile])
