@@ -2,15 +2,15 @@ CFLAGS=-g -Wall -O2 -DVERSION=\"3.36\" -DSTORAGEDIR=\"/var/lib/bluetooth\" $(she
 LIBS=$(shell pkg-config --libs bluez) -lm
 OBJ = main.o sdp.o textfile.o
 
-all: hidd
+all: l2cap
 
-hidd: $(OBJ)
+l2cap: $(OBJ)
 	$(CC) -g -o $@ $^ $(LIBS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-clean: .PHONY
+clean:
 	rm -f $(OBJ)
 
-.PHONY:	
+.PHONY:	clean
