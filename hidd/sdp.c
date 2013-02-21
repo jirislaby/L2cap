@@ -44,31 +44,6 @@
 #include "textfile.h"
 #include "hidd.h"
 
-static void epox_endian_quirk(unsigned char *data, int size)
-{
-	/* USAGE_PAGE (Keyboard)	05 07
-	 * USAGE_MINIMUM (0)		19 00
-	 * USAGE_MAXIMUM (65280)	2A 00 FF   <= must be FF 00
-	 * LOGICAL_MINIMUM (0)		15 00
-	 * LOGICAL_MAXIMUM (65280)	26 00 FF   <= must be FF 00
-	 */
-	unsigned char pattern[] = { 0x05, 0x07, 0x19, 0x00, 0x2a, 0x00, 0xff,
-						0x15, 0x00, 0x26, 0x00, 0xff };
-	int i;
-
-	if (!data)
-		return;
-
-	for (i = 0; i < size - sizeof(pattern); i++) {
-		if (!memcmp(data + i, pattern, sizeof(pattern))) {
-			data[i + 5] = 0xff;
-			data[i + 6] = 0x00;
-			data[i + 10] = 0xff;
-			data[i + 11] = 0x00;
-		}
-	}
-}
-
 static int store_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_connadd_req *req)
 {
 	char filename[PATH_MAX + 1], addr[18], *str, *desc;
@@ -272,7 +247,6 @@ int get_sdp_device_info(const bdaddr_t *src, const bdaddr_t *dst, struct hidp_co
 		if (req->rd_data) {
 			memcpy(req->rd_data, (unsigned char *) pdlist->val.str, pdlist->unitSize);
 			req->rd_size = pdlist->unitSize;
-			epox_endian_quirk(req->rd_data, req->rd_size);
 		}
 	}
 
